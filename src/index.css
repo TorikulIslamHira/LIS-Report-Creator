@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base Styles */
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  
+  color-scheme: light;
+  color: rgba(0, 0, 0, 0.87);
+  background-color: #ffffff;
+  
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* Print Styles */
+@media print {
+  /* Hide all non-printable elements */
+  .print\\:hidden,
+  header,
+  button,
+  input[type="text"]:not(.print-container input),
+  .border-dashed,
+  nav {
+    display: none !important;
+  }
+  
+  /* Show print container */
+  .print-container {
+    display: block !important;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Reset body for printing */
+  body {
+    background: white;
+    margin: 0;
+    padding: 20px;
+  }
+  
+  /* Make inputs look like regular text when printing */
+  .print-container input {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    outline: none !important;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+  }
+  
+  /* Ensure proper page breaks */
+  .print-container {
+    page-break-inside: avoid;
+  }
+  
+  /* Table print styles */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  th, td {
+    border: 1px solid #000 !important;
+    padding: 8px !important;
+  }
+  
+  /* Preserve colors when printing */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Make text black and readable */
+  .text-red-600 {
+    color: #dc2626 !important;
+  }
+  
+  .font-bold {
+    font-weight: 700 !important;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
