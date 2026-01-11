@@ -7,8 +7,7 @@
     "dev": "vite",
     "build": "vite build && electron-builder",
     "preview": "vite preview",
-    "electron:dev": "concurrently -k \"vite\" \"npm run electron:start\"",
-    "electron:start": "wait-on http://localhost:5173 && wait-on dist-electron/main.cjs && electron .",
+    "electron:dev": "vite",
     "electron:build": "vite build && electron-builder"
   },
   "keywords": [

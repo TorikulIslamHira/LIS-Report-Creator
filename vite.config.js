@@ -11,8 +11,8 @@ export default defineConfig({
       {
         // Main process entry file
         entry: 'electron/electron.js',
-        onstart(args) {
-          args.startup()
+        onstart({ startup }) {
+          startup()
         },
         vite: {
           build: {

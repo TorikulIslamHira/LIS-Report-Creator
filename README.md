@@ -5,11 +5,13 @@ A desktop application for medical laboratories to manage and redesign blood test
 ## Features
 
 - **PDF Upload**: Drag-and-drop or browse to upload lab report PDFs
-- **PDF Parsing**: Extracts text from PDFs using pdf-parse library
+- **AI-Powered Extraction**: Uses GPT-4o-mini for intelligent parsing (or Ollama for offline)
+- **Fallback Regex Parser**: Automatic fallback if AI is unavailable
 - **Editable Report**: Full editing capabilities for all test data
 - **Validation**: Automatic highlighting of out-of-range results in red and bold
 - **Professional Print Layout**: Print-optimized medical report format
-- **Patient Information**: Editable patient name, age, and date fields
+- **Patient Information**: Editable patient name, age, date, and doctor fields
+- **Privacy Options**: Use local Ollama for offline/private processing
 
 ## Tech Stack
 
@@ -46,6 +48,29 @@ LabReportOptimizer/
 ```bash
 npm install
 ```
+
+2. Configure AI Extraction (Optional but Recommended):
+```bash
+# Copy the example environment file
+cp .env.example .env
+
+# Edit .env and add your OpenAI API key
+# Get your API key from: https://platform.openai.com/api-keys
+VITE_OPENAI_API_KEY=sk-your-api-key-here
+```
+
+**Note:** AI extraction is optional. The app will fall back to regex-based parsing if not configured.
+
+### Using Ollama (Offline Mode)
+
+For privacy or offline use, you can use Ollama instead of OpenAI:
+
+1. Install Ollama: https://ollama.ai
+2. Pull a model: `ollama pull llama3.2`
+3. Edit `src/services/aiExtractor.js`:
+   - Comment out the OpenAI configuration
+   - Uncomment the Ollama configuration
+   - No API key needed!
 
 ## Development
 

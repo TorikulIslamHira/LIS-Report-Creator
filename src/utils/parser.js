@@ -1,26 +1,88 @@
 /**
- * Mock parser that converts raw PDF text into structured test data
- * In production, this would use regex patterns specific to your lab's PDF format
+ * Parser that converts raw PDF text into structured test data
+ * Attempts to extract test data from various lab report formats
  * 
  * @param {string} rawText - The raw text extracted from PDF
  * @returns {Array} - Array of test objects
  */
 export const parseLabReport = (rawText) => {
-  // TODO: Replace this with actual parsing logic based on your PDF format
-  // For now, return mock data to test the UI
+  console.log('=== RAW PDF TEXT ===')
+  console.log(rawText)
+  console.log('=== END RAW PDF TEXT ===')
   
-  return [
-    { id: 1, testName: "Hemoglobin", result: "12.5", unit: "g/dL", refRange: "11.5-16.5" },
-    { id: 2, testName: "RBC Count", result: "5.2", unit: "million/µL", refRange: "4.5-5.5" },
-    { id: 3, testName: "WBC Count", result: "8.5", unit: "thousand/µL", refRange: "4.0-11.0" },
-    { id: 4, testName: "Platelets", result: "180", unit: "thousand/µL", refRange: "150-400" },
-    { id: 5, testName: "Blood Sugar (Fasting)", result: "110", unit: "mg/dL", refRange: "70-100" },
-    { id: 6, testName: "Total Cholesterol", result: "210", unit: "mg/dL", refRange: "125-200" },
-    { id: 7, testName: "HDL Cholesterol", result: "45", unit: "mg/dL", refRange: "40-60" },
-    { id: 8, testName: "LDL Cholesterol", result: "140", unit: "mg/dL", refRange: "0-100" },
-    { id: 9, testName: "Triglycerides", result: "125", unit: "mg/dL", refRange: "0-150" },
-    { id: 10, testName: "Creatinine", result: "1.1", unit: "mg/dL", refRange: "0.7-1.3" }
-  ]
+  if (!rawText || rawText.trim().length === 0) {
+    console.warn('No text extracted from PDF')
+    return []
+  }
+
+  const tests = []
+  let testId = 1
+
+  // Common patterns for lab reports
+  // Pattern 1: Test Name | Result | Unit | Reference Range
+  // Pattern 2: Test Name    Result Unit    Reference Range
+  // Pattern 3: Test Name: Result Unit (Range: xxx-xxx)
+  
+  const lines = rawText.split('\n')
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    
+    if (!line || line.length < 5) continue
+    
+    // Try different parsing patterns
+    
+    // Pattern 1: Tab or pipe separated (TestName | 12.5 | g/dL | 11.5-16.5)
+    let match = line.match(/^(.+?)[\s\|]+(\d+\.?\d*)\s+([\w\/µΩ°%]+)\s+([\d\.\-<>]+)/i)
+    
+    if (!match) {
+      // Pattern 2: Multiple spaces separated (Hemoglobin    12.5 g/dL    11.5-16.5)
+      match = line.match(/^(.+?)\s{2,}(\d+\.?\d*)\s+([\w\/µΩ°%]+)\s+([\d\.\-<>]+)/i)
+    }
+    
+    if (!match) {
+      // Pattern 3: Colon format (Hemoglobin: 12.5 g/dL (11.5-16.5))
+      match = line.match(/^(.+?):\s*(\d+\.?\d*)\s*([\w\/µΩ°%]+)\s*\(?([\d\.\-<>]+)/i)
+    }
+    
+    if (!match) {
+      // Pattern 4: Any number followed by unit and range
+      match = line.match(/^(.+?)\s+(\d+\.?\d*)\s+([\w\/µΩ°%]+)\s+([\d\.\-<>]+)/i)
+    }
+    
+    if (match && match.length >= 5) {
+      const testName = match[1].trim()
+      const result = match[2].trim()
+      const unit = match[3].trim()
+      const refRange = match[4].trim()
+      
+      // Filter out header rows
+      if (testName.toLowerCase().includes('test') && testName.toLowerCase().includes('name')) continue
+      if (testName.toLowerCase() === 'parameter') continue
+      if (testName.toLowerCase() === 'investigation') continue
+      
+      tests.push({
+        id: testId++,
+        testName: testName,
+        result: result,
+        unit: unit,
+        refRange: refRange
+      })
+    }
+  }
+  
+  console.log('Parsed tests:', tests)
+  
+  // If no tests were parsed, return sample data with a warning
+  if (tests.length === 0) {
+    console.warn('Could not parse any tests from PDF. Returning sample data.')
+    alert('Could not automatically parse the PDF format. Please check the console to see the raw text and adjust the parser accordingly, or manually enter the data.')
+    
+    // Return empty array so user can manually add tests
+    return []
+  }
+  
+  return tests
 }
 
 /**

@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
 import { useReactToPrint } from 'react-to-print'
 import { parseLabReport, isWithinRange, generateTestId } from './utils/parser'
-import { Home, Printer, Settings, Upload, FileText, Plus, Trash2 } from 'lucide-react'
+import { extractMedicalDataWithAI, isAIExtractionAvailable, getConfigStatus } from './services/aiExtractor'
+import { Home, Printer, Settings, Upload, FileText, Plus, Trash2, Sparkles } from 'lucide-react'
 
 function App() {
   const [tests, setTests] = useState([])
@@ -12,6 +13,9 @@ function App() {
   const [isDragging, setIsDragging] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('home')
+  const [uploadedFilePath, setUploadedFilePath] = useState(null)
+  const [pdfData, setPdfData] = useState(null)
+  const [useAI, setUseAI] = useState(true) // Toggle for AI vs Regex parsing
   const printRef = useRef()
 
   // Handle print
@@ -32,7 +36,7 @@ function App() {
       const result = await window.electronAPI.openFileDialog()
       
       if (!result.canceled && result.filePath) {
-        await processPDF(result.filePath)
+        await uploadPDF(result.filePath)
       }
     } catch (error) {
       console.error('Error selecting file:', error)
@@ -42,20 +46,67 @@ function App() {
     }
   }
 
-  // Process the PDF file
-  const processPDF = async (filePath) => {
+  // Upload the PDF file (store path, don't process yet)
+  const uploadPDF = async (filePath) => {
     try {
       const result = await window.electronAPI.parsePDF(filePath)
       
       if (result.success) {
-        const parsedTests = parseLabReport(result.text)
-        setTests(parsedTests)
+        setUploadedFilePath(filePath)
+        setPdfData(result.text)
+        alert('PDF uploaded successfully! Click "Load Result" to view the data.')
       } else {
         alert('Error parsing PDF: ' + result.error)
       }
     } catch (error) {
       console.error('Error processing PDF:', error)
       alert('Error processing PDF: ' + error.message)
+    }
+  }
+
+  // Load and display result
+  const handleLoadResult = async () => {
+    if (!pdfData) {
+      alert('No PDF data available. Please upload a PDF first.')
+      return
+    }
+    
+    if (isLoading) {
+      console.log('[App] Already processing, ignoring duplicate request')
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      if (useAI && isAIExtractionAvailable()) {
+        console.log('[App] Using AI extraction')
+        const aiResult = await extractMedicalDataWithAI(pdfData)
+        
+        // Update patient info if extracted
+        if (aiResult.patientName) setPatientName(aiResult.patientName)
+        if (aiResult.reportDate) setReportDate(aiResult.reportDate)
+        
+        // Set tests
+        setTests(aiResult.tests)
+      } else {
+        console.log('[App] Using regex extraction')
+        const parsedTests = parseLabReport(pdfData)
+        setTests(parsedTests)
+      }
+    } catch (error) {
+      console.error('[App] Extraction error:', error)
+      alert(`Error extracting data: ${error.message}\n\nFalling back to regex parser...`)
+      
+      // Fallback to regex parser
+      try {
+        const parsedTests = parseLabReport(pdfData)
+        setTests(parsedTests)
+      } catch (fallbackError) {
+        console.error('[App] Fallback error:', fallbackError)
+        alert('Both AI and regex parsing failed. Please manually enter the data.')
+      }
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -85,7 +136,7 @@ function App() {
     if (!window.electronAPI) {
       alert('Electron API not available. Please use the Browse Files button.')
       return
-    }
+    }upload
 
     const files = e.dataTransfer.files
     if (files.length > 0) {
@@ -196,25 +247,76 @@ function App() {
               >
                 <Upload className="mx-auto h-16 w-16 text-slate-400 mb-6" />
                 <h2 className="text-2xl font-semibold text-slate-800 mb-2">
-                  {isLoading ? 'Processing PDF...' : 'Upload Laboratory Report'}
+                  {isLoading ? 'Processing PDF...' : uploadedFilePath ? 'PDF Uploaded Successfully!' : 'Upload Laboratory Report'}
                 </h2>
                 <p className="text-slate-500 mb-6">
-                  Drag and drop a PDF file here, or click to browse
+                  {uploadedFilePath 
+                    ? `File: ${uploadedFilePath.split('\\').pop()}`
+                    : 'Drag and drop a PDF file here, or click to browse'
+                  }
                 </p>
+                
+                {/* AI/Regex Toggle */}
+                {uploadedFilePath && (
+                  <div className="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="flex items-center justify-center gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={useAI}
+                          onChange={(e) => setUseAI(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-600"
+                        />
+                        <Sparkles size={16} className="text-blue-600" />
+                        <span className="text-sm font-medium text-slate-700">
+                          Use AI Extraction {isAIExtractionAvailable() ? '(Recommended)' : '(Not configured)'}
+                        </span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-slate-500 text-center mt-2">
+                      {getConfigStatus()}
+                    </p>
+                  </div>
+                )}
+                
                 <div className="flex gap-4 justify-center">
-                  <button
-                    onClick={handleFileSelect}
-                    disabled={isLoading}
-                    className="px-8 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-slate-400 transition-colors"
-                  >
-                    {isLoading ? 'Loading...' : 'Browse Files'}
-                  </button>
-                  <button
-                    onClick={handleLoadSampleData}
-                    className="px-8 py-3 bg-white text-blue-600 font-medium rounded-lg border-2 border-blue-600 hover:bg-blue-50 transition-colors"
-                  >
-                    Load Sample Data
-                  </button>
+                  {!uploadedFilePath ? (
+                    <>
+                      <button
+                        onClick={handleFileSelect}
+                        disabled={isLoading}
+                        className="px-8 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-slate-400 transition-colors"
+                      >
+                        {isLoading ? 'Loading...' : 'Browse Files'}
+                      </button>
+                      <button
+                        onClick={handleLoadSampleData}
+                        className="px-8 py-3 bg-white text-blue-600 font-medium rounded-lg border-2 border-blue-600 hover:bg-blue-50 transition-colors"
+                      >
+                        Load Sample Data
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleLoadResult}
+                        disabled={isLoading}
+                        className="px-8 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <FileText size={20} />
+                        {isLoading ? 'Processing...' : 'Load Result'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setUploadedFilePath(null)
+                          setPdfData(null)
+                        }}
+                        className="px-8 py-3 bg-white text-slate-600 font-medium rounded-lg border-2 border-slate-300 hover:bg-slate-50 transition-colors"
+                      >
+                        Upload Different File
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
