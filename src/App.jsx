@@ -1,28 +1,62 @@
-import { useState, useRef } from 'react'
-import { useReactToPrint } from 'react-to-print'
+import { useState, useRef, useEffect } from 'react'
 import { parseLabReport, isWithinRange, generateTestId } from './utils/parser'
 import { extractMedicalDataWithAI, isAIExtractionAvailable, getConfigStatus } from './services/aiExtractor'
-import { Home, Printer, Settings, Upload, FileText, Plus, Trash2, Sparkles } from 'lucide-react'
+import { Home, Settings as SettingsIcon, Upload, FileText, Plus, Trash2, Sparkles, Clock, Save, Printer, AlertCircle } from 'lucide-react'
+import Settings from './components/Settings'
+import History from './components/History'
+import PrintPreviewModal from './components/PrintPreviewModal'
+import UHIDModal from './components/UHIDModal'
+import PreUploadedReports from './components/PreUploadedReports'
 
 function App() {
   const [tests, setTests] = useState([])
-  const [patientName, setPatientName] = useState('John Doe')
-  const [patientAge, setPatientAge] = useState('35')
-  const [doctorName, setDoctorName] = useState('Dr. Smith')
+  const [petName, setPetName] = useState('Max')
+  const [petOwnerName, setPetOwnerName] = useState('')
+  const [ageYears, setAgeYears] = useState('')
+  const [ageMonths, setAgeMonths] = useState('')
+  const [ageDays, setAgeDays] = useState('')
+  const [selectedDoctorId, setSelectedDoctorId] = useState('')
+  const [selectedTesterId, setSelectedTesterId] = useState('')
   const [reportDate, setReportDate] = useState(new Date().toLocaleDateString())
+  const [deliveryDate, setDeliveryDate] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('home')
   const [uploadedFilePath, setUploadedFilePath] = useState(null)
   const [pdfData, setPdfData] = useState(null)
-  const [useAI, setUseAI] = useState(true) // Toggle for AI vs Regex parsing
+  const [doctors, setDoctors] = useState([])
+  const [testers, setTesters] = useState([])
+  const [showPrintPreview, setShowPrintPreview] = useState(false)
+  const [savedReportData, setSavedReportData] = useState(null)
+  const [showUHIDModal, setShowUHIDModal] = useState(false)
+  const [pendingFilePath, setPendingFilePath] = useState(null)
+  const [uhid, setUhid] = useState('')
+  const [reportId, setReportId] = useState('')
   const printRef = useRef()
 
-  // Handle print
-  const handlePrint = useReactToPrint({
-    content: () => printRef.current,
-    documentTitle: `Lab_Report_${patientName}_${reportDate}`,
-  })
+  // Load doctors and testers on mount
+  useEffect(() => {
+    loadDoctors()
+    loadTesters()
+  }, [])
+
+  const loadDoctors = async () => {
+    try {
+      const doctorsList = await window.electronAPI.getDoctors()
+      setDoctors(doctorsList || [])
+    } catch (error) {
+      console.error('Error loading doctors:', error)
+    }
+  }
+
+  const loadTesters = async () => {
+    try {
+      const testersList = await window.electronAPI.getTesters()
+      setTesters(testersList || [])
+    } catch (error) {
+      console.error('Error loading testers:', error)
+    }
+  }
 
   // Handle file selection via dialog
   const handleFileSelect = async () => {
@@ -31,18 +65,17 @@ function App() {
       return
     }
 
-    setIsLoading(true)
     try {
       const result = await window.electronAPI.openFileDialog()
       
       if (!result.canceled && result.filePath) {
-        await uploadPDF(result.filePath)
+        // Show UHID modal before processing
+        setPendingFilePath(result.filePath)
+        setShowUHIDModal(true)
       }
     } catch (error) {
       console.error('Error selecting file:', error)
       alert('Error selecting file: ' + error.message)
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -64,6 +97,25 @@ function App() {
     }
   }
 
+  // Handle UHID confirmation
+  const handleUHIDConfirm = async (enteredUhid, generatedReportId) => {
+    setUhid(enteredUhid)
+    setReportId(generatedReportId)
+    setShowUHIDModal(false)
+    
+    // Now upload the PDF
+    setIsLoading(true)
+    await uploadPDF(pendingFilePath)
+    setPendingFilePath(null)
+    setIsLoading(false)
+  }
+
+  // Handle UHID modal cancel
+  const handleUHIDCancel = () => {
+    setShowUHIDModal(false)
+    setPendingFilePath(null)
+  }
+
   // Load and display result
   const handleLoadResult = async () => {
     if (!pdfData) {
@@ -78,12 +130,13 @@ function App() {
 
     setIsLoading(true)
     try {
-      if (useAI && isAIExtractionAvailable()) {
+      // AI extraction is always enabled
+      if (isAIExtractionAvailable()) {
         console.log('[App] Using AI extraction')
         const aiResult = await extractMedicalDataWithAI(pdfData)
         
-        // Update patient info if extracted
-        if (aiResult.patientName) setPatientName(aiResult.patientName)
+        // Update pet info if extracted
+        if (aiResult.patientName) setPetName(aiResult.patientName)
         if (aiResult.reportDate) setReportDate(aiResult.reportDate)
         
         // Set tests
@@ -136,20 +189,20 @@ function App() {
     if (!window.electronAPI) {
       alert('Electron API not available. Please use the Browse Files button.')
       return
-    }upload
+    }
 
     const files = e.dataTransfer.files
     if (files.length > 0) {
       const file = files[0]
       if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-        setIsLoading(true)
         const filePath = file.path
         if (filePath) {
-          await processPDF(filePath)
+          // Show UHID modal before processing
+          setPendingFilePath(filePath)
+          setShowUHIDModal(true)
         } else {
           alert('Could not get file path. Please use the Browse Files button instead.')
         }
-        setIsLoading(false)
       } else {
         alert('Please drop a PDF file')
       }
@@ -186,12 +239,124 @@ function App() {
     setTests([...tests, newTest])
   }
 
+  // Save report to history
+  const handleSaveToHistory = async () => {
+    if (tests.length === 0) {
+      alert('Please add at least one test result before saving.')
+      return
+    }
+
+    if (!selectedDoctorId) {
+      alert('Please select a doctor before saving.')
+      return
+    }
+
+    if (!selectedTesterId) {
+      alert('Please select a tester before saving.')
+      return
+    }
+
+    if (!uhid) {
+      alert('UHID is missing. Please upload the PDF again.')
+      return
+    }
+
+    try {
+      const selectedDoctor = doctors.find(d => d.id === selectedDoctorId)
+      const selectedTester = testers.find(t => t.id === selectedTesterId)
+
+      const reportData = {
+        uhid,
+        reportId,
+        petName,
+        petOwnerName,
+        ageYears,
+        ageMonths,
+        ageDays,
+        doctorId: selectedDoctorId,
+        doctorName: selectedDoctor ? `${selectedDoctor.name}, ${selectedDoctor.degrees}` : '',
+        testerId: selectedTesterId,
+        testerName: selectedTester ? `${selectedTester.name} (${selectedTester.designation})` : '',
+        reportDate,
+        deliveryDate,
+        tests,
+        createdAt: new Date().toISOString()
+      }
+
+      await window.electronAPI.saveReport(reportData)
+      setSavedReportData(reportData)
+      alert('Report saved successfully!')
+    } catch (error) {
+      console.error('Error saving report:', error)
+      alert('Error saving report: ' + error.message)
+    }
+  }
+
+  // Load report from history
+  const handleLoadFromHistory = (report) => {
+    setPetName(report.petName || '')
+    setPetOwnerName(report.petOwnerName || '')
+    setAgeYears(report.ageYears || '')
+    setAgeMonths(report.ageMonths || '')
+    setAgeDays(report.ageDays || '')
+    setSelectedDoctorId(report.doctorId || '')
+    setSelectedTesterId(report.testerId || '')
+    setReportDate(report.reportDate || '')
+    setDeliveryDate(report.deliveryDate || '')
+    setTests(report.tests || [])
+    setUhid(report.uhid || '')
+    setReportId(report.reportId || '')
+    setSavedReportData(report)
+    setActiveTab('home')
+  }
+
+  // Load pending report from watch folder for review/edit
+  const handleLoadPendingReport = (report) => {
+    setPetName(report.petName || '')
+    setPetOwnerName(report.petOwnerName || '')
+    setAgeYears(report.ageYears || '')
+    setAgeMonths(report.ageMonths || '')
+    setAgeDays(report.ageDays || '')
+    setSelectedDoctorId('')
+    setSelectedTesterId('')
+    setReportDate(new Date().toLocaleDateString())
+    setDeliveryDate('')
+    setTests(report.tests || [])
+    setUhid(report.uhid || '')
+    setReportId(report.reportId || '')
+    setSavedReportData(null) // Not saved yet, needs review
+    setActiveTab('home')
+  }
+
+  // Reset form
+  const handleReset = () => {
+    setTests([])
+    setPetName('Max')
+    setPetOwnerName('')
+    setAgeYears('')
+    setAgeMonths('')
+    setAgeDays('')
+    setSelectedDoctorId('')
+    setSelectedTesterId('')
+    setReportDate(new Date().toLocaleDateString())
+    setDeliveryDate('')
+    setUploadedFilePath(null)
+    setPdfData(null)
+    setSavedReportData(null)
+    setShowPrintPreview(false)
+    setUhid('')
+    setReportId('')
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 print:block">
       {/* Sidebar */}
       <aside className="w-16 bg-white border-r border-slate-200 flex flex-col items-center py-8 print:hidden">
         <button
-          onClick={() => setActiveTab('home')}
+          onClick={() => {
+            setActiveTab('home')
+            handleReset()
+          }}
           className={`p-3 rounded-lg mb-4 transition-colors ${
             activeTab === 'home' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600'
           }`}
@@ -200,16 +365,22 @@ function App() {
           <Home size={24} />
         </button>
         <button
-          onClick={() => {
-            setActiveTab('print')
-            if (tests.length > 0) handlePrint()
-          }}
+          onClick={() => setActiveTab('history')}
           className={`p-3 rounded-lg mb-4 transition-colors ${
-            activeTab === 'print' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600'
+            activeTab === 'history' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600'
           }`}
-          title="Print"
+          title="History"
         >
-          <Printer size={24} />
+          <Clock size={24} />
+        </button>
+        <button
+          onClick={() => setActiveTab('pending')}
+          className={`p-3 rounded-lg mb-4 transition-colors ${
+            activeTab === 'pending' ? 'bg-amber-50 text-amber-600' : 'text-slate-400 hover:text-slate-600'
+          }`}
+          title="Pre-uploaded Reports"
+        >
+          <AlertCircle size={24} />
         </button>
         <button
           onClick={() => setActiveTab('settings')}
@@ -218,7 +389,7 @@ function App() {
           }`}
           title="Settings"
         >
-          <Settings size={24} />
+          <SettingsIcon size={24} />
         </button>
       </aside>
 
@@ -226,11 +397,20 @@ function App() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="bg-white border-b border-slate-200 px-8 py-4 print:hidden">
-          <h1 className="text-2xl font-semibold text-slate-800">Report Generator</h1>
+          <h1 className="text-2xl font-semibold text-slate-800">
+            {activeTab === 'settings' ? 'Settings' : activeTab === 'history' ? 'History' : activeTab === 'pending' ? 'Pre-uploaded Reports' : 'Report Generator'}
+          </h1>
         </header>
 
         {/* Content Area */}
-        <main className="flex-1 overflow-auto p-8">
+        {activeTab === 'settings' ? (
+          <Settings />
+        ) : activeTab === 'history' ? (
+          <History onLoadReport={handleLoadFromHistory} />
+        ) : activeTab === 'pending' ? (
+          <PreUploadedReports onLoadReport={handleLoadPendingReport} />
+        ) : (
+          <main className="flex-1 overflow-auto p-8">
           {/* State A: Upload */}
           {tests.length === 0 && (
             <div className="h-full flex items-center justify-center">
@@ -255,29 +435,6 @@ function App() {
                     : 'Drag and drop a PDF file here, or click to browse'
                   }
                 </p>
-                
-                {/* AI/Regex Toggle */}
-                {uploadedFilePath && (
-                  <div className="mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="flex items-center justify-center gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={useAI}
-                          onChange={(e) => setUseAI(e.target.checked)}
-                          className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-600"
-                        />
-                        <Sparkles size={16} className="text-blue-600" />
-                        <span className="text-sm font-medium text-slate-700">
-                          Use AI Extraction {isAIExtractionAvailable() ? '(Recommended)' : '(Not configured)'}
-                        </span>
-                      </label>
-                    </div>
-                    <p className="text-xs text-slate-500 text-center mt-2">
-                      {getConfigStatus()}
-                    </p>
-                  </div>
-                )}
                 
                 <div className="flex gap-4 justify-center">
                   {!uploadedFilePath ? (
@@ -322,63 +479,152 @@ function App() {
             </div>
           )}
 
-          {/* State B: Edit */}
+          {/* State B: Edit - Single Column Layout */}
           {tests.length > 0 && (
-            <div className="grid grid-cols-2 gap-8 h-full">
-              {/* Left Side: Edit Panel */}
-              <div className="space-y-6 overflow-auto">
-                {/* Patient Info Card */}
-                <div className="bg-white rounded-xl p-6 border border-slate-200">
-                  <h3 className="text-lg font-semibold text-slate-800 mb-4">Patient Information</h3>
-                  <div className="space-y-4">
+            <div className="max-w-4xl mx-auto space-y-6">
+              {/* Patient Info Card */}
+              <div className="bg-white rounded-xl p-6 border border-slate-200">
+                <h3 className="text-lg font-semibold text-slate-800 mb-4">Patient Information</h3>
+                
+                {/* UHID and Report ID Display */}
+                <div className="grid grid-cols-2 gap-4 mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div>
+                    <label className="block text-xs font-medium text-blue-700 mb-1">
+                      UHID (Unique Health ID)
+                    </label>
+                    <p className="text-sm font-semibold text-blue-900">{uhid || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-blue-700 mb-1">
+                      Report ID
+                    </label>
+                    <p className="text-sm font-semibold text-blue-900">{reportId || 'N/A'}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">
-                        Patient Name
+                        Pet Name
                       </label>
                       <input
                         type="text"
-                        value={patientName}
-                        onChange={(e) => setPatientName(e.target.value)}
+                        value={petName}
+                        onChange={(e) => setPetName(e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                          Age
-                        </label>
-                        <input
-                          type="text"
-                          value={patientAge}
-                          onChange={(e) => setPatientAge(e.target.value)}
-                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                          Date
-                        </label>
-                        <input
-                          type="text"
-                          value={reportDate}
-                          onChange={(e) => setReportDate(e.target.value)}
-                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
-                        />
-                      </div>
-                    </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">
-                        Doctor Name
+                        Pet Owner Name
                       </label>
                       <input
                         type="text"
-                        value={doctorName}
-                        onChange={(e) => setDoctorName(e.target.value)}
+                        value={petOwnerName}
+                        onChange={(e) => setPetOwnerName(e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Age
+                      </label>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            placeholder="Years"
+                            value={ageYears}
+                            onChange={(e) => setAgeYears(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-center"
+                          />
+                          <p className="text-xs text-slate-500 text-center mt-1">Years</p>
+                        </div>
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            placeholder="Months"
+                            value={ageMonths}
+                            onChange={(e) => setAgeMonths(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-center"
+                          />
+                          <p className="text-xs text-slate-500 text-center mt-1">Months</p>
+                        </div>
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            placeholder="Days"
+                            value={ageDays}
+                            onChange={(e) => setAgeDays(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-center"
+                          />
+                          <p className="text-xs text-slate-500 text-center mt-1">Days</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Test Date
+                      </label>
+                      <input
+                        type="text"
+                        value={reportDate}
+                        onChange={(e) => setReportDate(e.target.value)}
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Referring Doctor
+                      </label>
+                      <select
+                        value={selectedDoctorId}
+                        onChange={(e) => setSelectedDoctorId(e.target.value)}
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      >
+                        <option value="">Select Doctor</option>
+                        {doctors.map((doctor) => (
+                          <option key={doctor.id} value={doctor.id}>
+                            {doctor.name}, {doctor.degrees}
+                          </option>
+                        ))}
+                      </select>
+                      {doctors.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          No doctors available. Add doctors in Settings.
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">
+                        Lab Tester
+                      </label>
+                      <select
+                        value={selectedTesterId}
+                        onChange={(e) => setSelectedTesterId(e.target.value)}
+                        className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      >
+                        <option value="">Select Tester</option>
+                        {testers.map((tester) => (
+                          <option key={tester.id} value={tester.id}>
+                            {tester.name} ({tester.designation})
+                          </option>
+                        ))}
+                      </select>
+                      {testers.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          No testers available. Add testers in Settings.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
+              </div>
 
                 {/* Test Results Card */}
                 <div className="bg-white rounded-xl p-6 border border-slate-200">
@@ -440,108 +686,58 @@ function App() {
                     })}
                   </div>
                 </div>
-              </div>
 
-              {/* Right Side: A4 Preview */}
-              <div className="flex items-start justify-center overflow-auto">
-                <div 
-                  ref={printRef}
-                  className="bg-white rounded-lg shadow-2xl p-12 w-[595px] min-h-[842px]"
-                  style={{ aspectRatio: '210/297' }}
-                >
-                  {/* Report Header */}
-                  <div className="border-b-2 border-slate-200 pb-6 mb-6">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="w-16 h-16 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm mb-3">
-                          LOGO
-                        </div>
-                        <h1 className="text-xl font-bold text-slate-800">Medical Laboratory</h1>
-                        <p className="text-xs text-slate-600 mt-1">Blood Test Report</p>
-                      </div>
-                      <div className="text-right text-sm">
-                        <p className="font-semibold text-slate-800">{patientName}</p>
-                        <p className="text-slate-600">Age: {patientAge}</p>
-                        <p className="text-slate-600">{reportDate}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Doctor Info */}
-                  <div className="mb-6">
-                    <p className="text-sm text-slate-600">
-                      <span className="font-medium">Referring Physician:</span> {doctorName}
-                    </p>
-                  </div>
-
-                  {/* Test Results Table */}
-                  <div className="mb-8">
-                    <h2 className="text-base font-semibold text-slate-800 mb-3">Test Results</h2>
-                    <table className="w-full border-collapse border border-slate-300">
-                      <thead>
-                        <tr className="bg-slate-100">
-                          <th className="border border-slate-300 px-3 py-2 text-left text-xs font-semibold text-slate-700">
-                            Test Name
-                          </th>
-                          <th className="border border-slate-300 px-3 py-2 text-left text-xs font-semibold text-slate-700">
-                            Result
-                          </th>
-                          <th className="border border-slate-300 px-3 py-2 text-left text-xs font-semibold text-slate-700">
-                            Unit
-                          </th>
-                          <th className="border border-slate-300 px-3 py-2 text-left text-xs font-semibold text-slate-700">
-                            Reference Range
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tests.map((test) => {
-                          const isOutOfRange = !isWithinRange(test.result, test.refRange)
-                          
-                          return (
-                            <tr key={test.id}>
-                              <td className="border border-slate-300 px-3 py-2 text-xs">
-                                {test.testName}
-                              </td>
-                              <td className={`border border-slate-300 px-3 py-2 text-xs ${
-                                isOutOfRange ? 'text-red-600 font-bold' : ''
-                              }`}>
-                                {test.result}
-                              </td>
-                              <td className="border border-slate-300 px-3 py-2 text-xs">
-                                {test.unit}
-                              </td>
-                              <td className="border border-slate-300 px-3 py-2 text-xs">
-                                {test.refRange}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Footer */}
-                  <div className="border-t-2 border-slate-200 pt-6 mt-auto">
-                    <div className="mb-4">
-                      <p className="text-xs text-slate-600 mb-2">Authorized Signature:</p>
-                      <div className="border-b border-slate-400 w-48 h-8"></div>
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      <p className="mb-1">
-                        <strong>Disclaimer:</strong> This report is for medical purposes only.
-                      </p>
-                      <p className="text-xs">
-                        Results should be interpreted by a qualified healthcare professional.
-                      </p>
-                    </div>
+                {/* Action Buttons */}
+                <div className="bg-white rounded-xl p-6 border border-slate-200">
+                  <div className="flex gap-4">
+                    <button
+                      onClick={handleSaveToHistory}
+                      className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <Save size={20} />
+                      Save Report
+                    </button>
+                    {savedReportData && (
+                      <button
+                        onClick={() => {
+                          setDeliveryDate(new Date().toLocaleDateString())
+                          setShowPrintPreview(true)
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Printer size={20} />
+                        Print Preview
+                      </button>
+                    )}
+                    <button
+                      onClick={handleReset}
+                      className="px-6 py-3 bg-slate-200 text-slate-700 font-medium rounded-lg hover:bg-slate-300 transition-colors"
+                    >
+                      Reset
+                    </button>
                   </div>
                 </div>
-              </div>
             </div>
           )}
         </main>
+        )}
       </div>
+
+      {/* Print Preview Modal */}
+      <PrintPreviewModal
+        isOpen={showPrintPreview}
+        onClose={() => setShowPrintPreview(false)}
+        reportData={savedReportData}
+        printRef={printRef}
+      />
+
+      {/* UHID Modal */}
+      <UHIDModal
+        isOpen={showUHIDModal}
+        onConfirm={handleUHIDConfirm}
+        onCancel={handleUHIDCancel}
+        fileName={pendingFilePath ? pendingFilePath.split('\\').pop() : ''}
+      />
     </div>
   )
 }

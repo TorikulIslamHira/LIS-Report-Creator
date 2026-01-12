@@ -2,11 +2,32 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const pdfParse = require('pdf-parse')
+const chokidar = require('chokidar')
 
 // Disable GPU acceleration for better compatibility
 app.disableHardwareAcceleration()
 
 let mainWindow
+let store
+let folderWatcher = null
+
+// Initialize store with dynamic import
+async function initStore() {
+  const Store = (await import('electron-store')).default
+  store = new Store({
+    defaults: {
+      hospitalName: 'Medical Laboratory',
+      hospitalAddress: '',
+      labPhone: '',
+      labEmail: '',
+      watchFolderPath: '',
+      doctors: [],
+      testers: [],
+      reportHistory: [],
+      pendingReports: []
+    }
+  })
+}
 
 function createWindow() {
   const preloadPath = path.join(__dirname, 'preload.cjs')
@@ -88,8 +109,238 @@ ipcMain.handle('open-file-dialog', async () => {
   }
 })
 
-app.whenReady().then(() => {
+// IPC Handlers for settings
+ipcMain.handle('get-settings', async () => {
+  return store.store
+})
+
+ipcMain.handle('save-settings', async (event, settings) => {
+  const oldWatchPath = store.get('watchFolderPath')
+  
+  Object.keys(settings).forEach(key => {
+    store.set(key, settings[key])
+  })
+  
+  // Restart folder watcher if watch path changed
+  const newWatchPath = settings.watchFolderPath
+  if (oldWatchPath !== newWatchPath) {
+    console.log('[Settings] Watch folder changed, restarting watcher')
+    startFolderWatcher()
+  }
+  
+  return { success: true }
+})
+
+ipcMain.handle('get-setting', async (event, key) => {
+  return store.get(key)
+})
+
+// IPC Handlers for doctors management
+ipcMain.handle('add-doctor', async (event, doctor) => {
+  const doctors = store.get('doctors', [])
+  const newDoctor = {
+    id: Date.now(),
+    ...doctor
+  }
+  doctors.push(newDoctor)
+  store.set('doctors', doctors)
+  return { success: true, doctor: newDoctor }
+})
+
+ipcMain.handle('get-doctors', async () => {
+  return store.get('doctors', [])
+})
+
+ipcMain.handle('delete-doctor', async (event, doctorId) => {
+  const doctors = store.get('doctors', [])
+  const filtered = doctors.filter(d => d.id !== doctorId)
+  store.set('doctors', filtered)
+  return { success: true }
+})
+
+// IPC Handlers for testers management
+ipcMain.handle('add-tester', async (event, tester) => {
+  const testers = store.get('testers', [])
+  const newTester = {
+    id: Date.now(),
+    ...tester
+  }
+  testers.push(newTester)
+  store.set('testers', testers)
+  return { success: true, tester: newTester }
+})
+
+ipcMain.handle('get-testers', async () => {
+  return store.get('testers', [])
+})
+
+ipcMain.handle('delete-tester', async (event, testerId) => {
+  const testers = store.get('testers', [])
+  const filtered = testers.filter(t => t.id !== testerId)
+  store.set('testers', filtered)
+  return { success: true }
+})
+
+// IPC Handlers for report history
+ipcMain.handle('save-report', async (event, reportData) => {
+  const history = store.get('reportHistory', [])
+  const newReport = {
+    id: Date.now(),
+    timestamp: new Date().toISOString(),
+    ...reportData
+  }
+  history.unshift(newReport) // Add to beginning
+  
+  // Keep only last 100 reports
+  if (history.length > 100) {
+    history.pop()
+  }
+  
+  store.set('reportHistory', history)
+  return { success: true, report: newReport }
+})
+
+ipcMain.handle('get-report-history', async () => {
+  return store.get('reportHistory', [])
+})
+
+ipcMain.handle('delete-report', async (event, reportId) => {
+  const history = store.get('reportHistory', [])
+  const filtered = history.filter(r => r.id !== reportId)
+  store.set('reportHistory', filtered)
+  return { success: true }
+})
+
+ipcMain.handle('clear-history', async () => {
+  store.set('reportHistory', [])
+  return { success: true }
+})
+
+// IPC Handler for folder selection
+ipcMain.handle('select-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  })
+  
+  if (result.canceled) {
+    return { canceled: true }
+  } else {
+    return { 
+      canceled: false, 
+      filePath: result.filePaths[0] 
+    }
+  }
+})
+
+// IPC Handlers for pending reports (watch folder)
+ipcMain.handle('get-pending-reports', async () => {
+  return store.get('pendingReports', [])
+})
+
+ipcMain.handle('delete-pending-report', async (event, reportId) => {
+  const pending = store.get('pendingReports', [])
+  const filtered = pending.filter(r => r.id !== reportId)
+  store.set('pendingReports', filtered)
+  return { success: true }
+})
+
+// Extract UHID from filename (format: UHID_filename.pdf or UHID.pdf)
+function extractUHIDFromFilename(filename) {
+  const nameWithoutExt = path.basename(filename, path.extname(filename))
+  const parts = nameWithoutExt.split('_')
+  return parts[0] // First part is assumed to be UHID
+}
+
+// Process PDF from watch folder
+async function processWatchedPDF(filePath) {
+  try {
+    console.log('[Watch Folder] Processing:', filePath)
+    
+    // Extract UHID from filename
+    const uhid = extractUHIDFromFilename(filePath)
+    
+    // Parse PDF
+    const dataBuffer = fs.readFileSync(filePath)
+    const data = await pdfParse(dataBuffer)
+    
+    // Auto-generate Report ID
+    const now = new Date()
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+    const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, '0')
+    const reportId = `RPT-${dateStr}-${randomNum}`
+    
+    // Create pending report
+    const pendingReport = {
+      id: Date.now(),
+      uhid: uhid,
+      reportId: reportId,
+      sourcePath: filePath,
+      pdfText: data.text,
+      status: 'PENDING_REVIEW',
+      detectedAt: new Date().toISOString(),
+      petName: '', // Will be filled by AI extraction or manual entry
+      tests: [] // Will be filled by AI extraction or manual entry
+    }
+    
+    // Save to pending reports
+    const pending = store.get('pendingReports', [])
+    pending.unshift(pendingReport)
+    store.set('pendingReports', pending)
+    
+    console.log('[Watch Folder] Report saved as PENDING_REVIEW:', uhid)
+    
+    // Notify renderer process
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('new-pending-report', pendingReport)
+    }
+    
+  } catch (error) {
+    console.error('[Watch Folder] Error processing PDF:', error)
+  }
+}
+
+// Start/restart folder watcher
+function startFolderWatcher() {
+  const watchPath = store.get('watchFolderPath')
+  
+  // Stop existing watcher if any
+  if (folderWatcher) {
+    folderWatcher.close()
+    folderWatcher = null
+  }
+  
+  if (!watchPath || !fs.existsSync(watchPath)) {
+    console.log('[Watch Folder] No valid watch folder configured')
+    return
+  }
+  
+  console.log('[Watch Folder] Watching:', watchPath)
+  
+  folderWatcher = chokidar.watch(path.join(watchPath, '*.pdf'), {
+    persistent: true,
+    ignoreInitial: true, // Don't process existing files on startup
+    awaitWriteFinish: {
+      stabilityThreshold: 2000, // Wait 2s for file to finish writing
+      pollInterval: 100
+    }
+  })
+  
+  folderWatcher
+    .on('add', (filePath) => {
+      console.log('[Watch Folder] New file detected:', filePath)
+      processWatchedPDF(filePath)
+    })
+    .on('error', (error) => {
+      console.error('[Watch Folder] Error:', error)
+    })
+}
+
+app.whenReady().then(async () => {
+  await initStore()
   createWindow()
+  
+  // Start folder watcher after store is initialized
+  startFolderWatcher()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -99,6 +350,11 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  // Close folder watcher
+  if (folderWatcher) {
+    folderWatcher.close()
+  }
+  
   if (process.platform !== 'darwin') {
     app.quit()
   }
