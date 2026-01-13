@@ -43,18 +43,62 @@
   },
   "build": {
     "appId": "com.labreportoptimizer.app",
-    "productName": "LabReportOptimizer",
+    "productName": "LIS Report Creator",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "!resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/ollama",
+        "to": "ollama",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/models",
+        "to": "models",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "win": {
       "target": [
-        "nsis"
-      ]
-    }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "${productName}-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LIS Report Creator",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "license": "LICENSE",
+      "warningsAsErrors": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "compression": "maximum",
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node"
+    ]
   }
 }

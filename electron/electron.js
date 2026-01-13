@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const pdfParse = require('pdf-parse')
 const chokidar = require('chokidar')
+const { spawn } = require('child_process')
 
 // Disable GPU acceleration for better compatibility
 app.disableHardwareAcceleration()
@@ -10,6 +11,120 @@ app.disableHardwareAcceleration()
 let mainWindow
 let store
 let folderWatcher = null
+let ollamaProcess = null
+
+// ============================================
+// RESOURCE PATH MANAGEMENT
+// ============================================
+
+/**
+ * Get the correct resource path based on environment
+ * In development: uses project resources/ folder
+ * In production: uses installed app resources/ folder
+ */
+function getResourcePath(relativePath) {
+  if (app.isPackaged) {
+    // Production: resources are in process.resourcesPath
+    return path.join(process.resourcesPath, relativePath)
+  } else {
+    // Development: resources are in project root
+    return path.join(__dirname, '..', 'resources', relativePath)
+  }
+}
+
+/**
+ * Get paths to bundled Ollama executable and models
+ */
+function getOllamaPaths() {
+  const ollamaExePath = getResourcePath('ollama/ollama.exe')
+  const modelsPath = getResourcePath('models')
+  
+  return {
+    ollamaExe: ollamaExePath,
+    modelsDir: modelsPath,
+    exists: fs.existsSync(ollamaExePath)
+  }
+}
+
+// ============================================
+// OLLAMA PROCESS MANAGEMENT
+// ============================================
+
+/**
+ * Start the bundled Ollama server
+ */
+function startOllamaServer() {
+  const { ollamaExe, modelsDir, exists } = getOllamaPaths()
+  
+  if (!exists) {
+    console.warn('[Ollama] Executable not found at:', ollamaExe)
+    console.warn('[Ollama] AI features will not be available')
+    return false
+  }
+  
+  console.log('[Ollama] Starting server...')
+  console.log('[Ollama] Executable:', ollamaExe)
+  console.log('[Ollama] Models directory:', modelsDir)
+  
+  try {
+    // Set environment variables for Ollama
+    const env = {
+      ...process.env,
+      OLLAMA_MODELS: modelsDir,
+      OLLAMA_HOST: '127.0.0.1:11434'
+    }
+    
+    // Spawn Ollama process
+    ollamaProcess = spawn(ollamaExe, ['serve'], {
+      env: env,
+      detached: false,
+      stdio: 'ignore' // Suppress output, use 'pipe' for debugging
+    })
+    
+    ollamaProcess.on('error', (error) => {
+      console.error('[Ollama] Failed to start:', error)
+    })
+    
+    ollamaProcess.on('exit', (code, signal) => {
+      console.log('[Ollama] Process exited with code:', code, 'signal:', signal)
+      ollamaProcess = null
+    })
+    
+    console.log('[Ollama] Server started with PID:', ollamaProcess.pid)
+    return true
+    
+  } catch (error) {
+    console.error('[Ollama] Error starting server:', error)
+    return false
+  }
+}
+
+/**
+ * Stop the Ollama server
+ */
+function stopOllamaServer() {
+  if (ollamaProcess && !ollamaProcess.killed) {
+    console.log('[Ollama] Stopping server...')
+    try {
+      ollamaProcess.kill('SIGTERM')
+      
+      // Force kill after 5 seconds if still running
+      setTimeout(() => {
+        if (ollamaProcess && !ollamaProcess.killed) {
+          console.log('[Ollama] Force killing process')
+          ollamaProcess.kill('SIGKILL')
+        }
+      }, 5000)
+      
+    } catch (error) {
+      console.error('[Ollama] Error stopping server:', error)
+    }
+  }
+}
+
+// ============================================
+// STORE & DATABASE MANAGEMENT
+// ============================================
 
 // Initialize store with dynamic import
 async function initStore() {
@@ -397,6 +512,18 @@ app.whenReady().then(async () => {
   await initStore()
   createWindow()
   
+  // Start Ollama server with the bundled resources
+  console.log('[App] Starting Ollama server...')
+  const ollamaStarted = startOllamaServer()
+  
+  if (ollamaStarted) {
+    console.log('[App] Ollama server started successfully')
+    // Wait 2 seconds for Ollama to initialize
+    await new Promise(resolve => setTimeout(resolve, 2000))
+  } else {
+    console.warn('[App] Ollama server failed to start - AI features disabled')
+  }
+  
   // Start folder watcher after store is initialized
   startFolderWatcher()
 
@@ -413,7 +540,22 @@ app.on('window-all-closed', () => {
     folderWatcher.close()
   }
   
+  // Stop Ollama server
+  console.log('[App] Shutting down Ollama server...')
+  stopOllamaServer()
+  
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// Handle app termination gracefully
+app.on('before-quit', () => {
+  console.log('[App] Application closing...')
+  stopOllamaServer()
+})
+
+// Ensure Ollama is stopped on any exit
+process.on('exit', () => {
+  stopOllamaServer()
 })

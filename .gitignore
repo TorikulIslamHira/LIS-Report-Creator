@@ -10,3 +10,12 @@ release
 *.swo
 *~
 .env
+
+# Large binary files (download separately before building)
+resources/ollama/*.exe
+resources/models/*.gguf
+resources/models/*.bin
+resources/models/*.safetensors
+
+# Build artifacts
+build/*.ico
