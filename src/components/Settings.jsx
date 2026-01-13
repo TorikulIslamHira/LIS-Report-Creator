@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, Building2, Phone, Mail, User, Award, Plus, Trash2, UserCheck } from 'lucide-react'
+import { Save, Building2, Phone, Mail, User, Award, Plus, Trash2, UserCheck, FileSignature } from 'lucide-react'
 
 export default function Settings() {
   const [settings, setSettings] = useState({
@@ -7,7 +7,8 @@ export default function Settings() {
     hospitalAddress: '',
     labPhone: '',
     labEmail: '',
-    watchFolderPath: ''
+    watchFolderPath: '',
+    doctorSignaturePath: ''
   })
   
   const [doctors, setDoctors] = useState([])
@@ -33,7 +34,8 @@ export default function Settings() {
         hospitalAddress: savedSettings.hospitalAddress || '',
         labPhone: savedSettings.labPhone || '',
         labEmail: savedSettings.labEmail || '',
-        watchFolderPath: savedSettings.watchFolderPath || ''
+        watchFolderPath: savedSettings.watchFolderPath || '',
+        doctorSignaturePath: savedSettings.doctorSignaturePath || ''
       })
     } catch (error) {
       console.error('Error loading settings:', error)
@@ -258,6 +260,83 @@ export default function Settings() {
                     {saveMessage}
                   </p>
                 )}
+              </div>
+            </div>
+
+            {/* Digital Signature Section */}
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <FileSignature size={24} className="text-blue-600" />
+                Digital Signature
+              </h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Doctor's Signature Image
+                  </label>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Upload a PNG image with transparent background (recommended). This will appear on printed reports.
+                  </p>
+                  
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={settings.doctorSignaturePath ? settings.doctorSignaturePath.split('\\').pop() : ''}
+                      readOnly
+                      placeholder="No signature uploaded"
+                      className="flex-1 px-4 py-2 border border-slate-300 rounded-lg bg-slate-50 text-slate-700"
+                    />
+                    <button
+                      onClick={async () => {
+                        try {
+                          const result = await window.electronAPI.selectFile({
+                            title: 'Select Signature Image',
+                            filters: [
+                              { name: 'PNG Images', extensions: ['png'] }
+                            ]
+                          })
+                          if (result && !result.canceled && result.filePath) {
+                            setSettings(prev => ({ ...prev, doctorSignaturePath: result.filePath }))
+                          }
+                        } catch (error) {
+                          console.error('Error selecting signature:', error)
+                          alert('Error: ' + error.message)
+                        }
+                      }}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
+                    >
+                      Upload PNG
+                    </button>
+                  </div>
+                  
+                  {settings.doctorSignaturePath && (
+                    <div className="mt-3 p-3 bg-slate-50 rounded border border-slate-200">
+                      <p className="text-xs text-slate-600 mb-2">Preview:</p>
+                      <img 
+                        src={`file://${settings.doctorSignaturePath}`} 
+                        alt="Doctor Signature" 
+                        className="max-h-20 object-contain bg-white border border-slate-200 p-2 rounded"
+                        onError={(e) => {
+                          e.target.style.display = 'none'
+                          e.target.nextSibling.style.display = 'block'
+                        }}
+                      />
+                      <p className="text-xs text-red-600 mt-1" style={{display: 'none'}}>
+                        Unable to load preview. File will still be saved.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="w-full px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Save size={20} />
+                  {isSaving ? 'Saving...' : 'Save Signature'}
+                </button>
               </div>
             </div>
           </div>

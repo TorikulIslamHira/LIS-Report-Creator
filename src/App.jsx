@@ -6,7 +6,7 @@ import Settings from './components/Settings'
 import History from './components/History'
 import PrintPreviewModal from './components/PrintPreviewModal'
 import UHIDModal from './components/UHIDModal'
-import PreUploadedReports from './components/PreUploadedReports'
+import LabWorklist from './components/LabWorklist'
 
 function App() {
   const [tests, setTests] = useState([])
@@ -79,21 +79,61 @@ function App() {
     }
   }
 
-  // Upload the PDF file (store path, don't process yet)
+  // Upload and immediately process the PDF file
   const uploadPDF = async (filePath) => {
     try {
+      setIsLoading(true)
       const result = await window.electronAPI.parsePDF(filePath)
       
       if (result.success) {
         setUploadedFilePath(filePath)
         setPdfData(result.text)
-        alert('PDF uploaded successfully! Click "Load Result" to view the data.')
+        
+        // Immediately trigger AI extraction
+        await processExtraction(result.text)
       } else {
         alert('Error parsing PDF: ' + result.error)
+        setIsLoading(false)
       }
     } catch (error) {
       console.error('Error processing PDF:', error)
       alert('Error processing PDF: ' + error.message)
+      setIsLoading(false)
+    }
+  }
+  
+  // Extract AI data from PDF text
+  const processExtraction = async (textData) => {
+    try {
+      if (isAIExtractionAvailable()) {
+        console.log('[App] Using AI extraction')
+        const aiResult = await extractMedicalDataWithAI(textData)
+        
+        // Update pet info if extracted
+        if (aiResult.patientName) setPetName(aiResult.patientName)
+        if (aiResult.reportDate) setReportDate(aiResult.reportDate)
+        
+        // Set tests
+        setTests(aiResult.tests)
+      } else {
+        console.log('[App] Using regex extraction')
+        const parsedTests = parseLabReport(textData)
+        setTests(parsedTests)
+      }
+    } catch (error) {
+      console.error('[App] Extraction error:', error)
+      alert(`Error extracting data: ${error.message}\n\nFalling back to regex parser...`)
+      
+      // Fallback to regex parser
+      try {
+        const parsedTests = parseLabReport(textData)
+        setTests(parsedTests)
+      } catch (fallbackError) {
+        console.error('[App] Fallback error:', fallbackError)
+        alert('Both AI and regex parsing failed. Please manually enter the data.')
+      }
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -116,52 +156,7 @@ function App() {
     setPendingFilePath(null)
   }
 
-  // Load and display result
-  const handleLoadResult = async () => {
-    if (!pdfData) {
-      alert('No PDF data available. Please upload a PDF first.')
-      return
-    }
-    
-    if (isLoading) {
-      console.log('[App] Already processing, ignoring duplicate request')
-      return
-    }
 
-    setIsLoading(true)
-    try {
-      // AI extraction is always enabled
-      if (isAIExtractionAvailable()) {
-        console.log('[App] Using AI extraction')
-        const aiResult = await extractMedicalDataWithAI(pdfData)
-        
-        // Update pet info if extracted
-        if (aiResult.patientName) setPetName(aiResult.patientName)
-        if (aiResult.reportDate) setReportDate(aiResult.reportDate)
-        
-        // Set tests
-        setTests(aiResult.tests)
-      } else {
-        console.log('[App] Using regex extraction')
-        const parsedTests = parseLabReport(pdfData)
-        setTests(parsedTests)
-      }
-    } catch (error) {
-      console.error('[App] Extraction error:', error)
-      alert(`Error extracting data: ${error.message}\n\nFalling back to regex parser...`)
-      
-      // Fallback to regex parser
-      try {
-        const parsedTests = parseLabReport(pdfData)
-        setTests(parsedTests)
-      } catch (fallbackError) {
-        console.error('[App] Fallback error:', fallbackError)
-        alert('Both AI and regex parsing failed. Please manually enter the data.')
-      }
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
   // Handle drag and drop events
   const handleDragEnter = (e) => {
@@ -352,6 +347,11 @@ function App() {
     <div className="flex h-screen bg-slate-50 print:block">
       {/* Sidebar */}
       <aside className="w-16 bg-white border-r border-slate-200 flex flex-col items-center py-8 print:hidden">
+        {/* Logo */}
+        <div className="mb-6 px-2">
+          <img src="/assest/Veta-logo.png" alt="Veta" className="w-12 h-12 object-contain" />
+        </div>
+        
         <button
           onClick={() => {
             setActiveTab('home')
@@ -378,7 +378,7 @@ function App() {
           className={`p-3 rounded-lg mb-4 transition-colors ${
             activeTab === 'pending' ? 'bg-amber-50 text-amber-600' : 'text-slate-400 hover:text-slate-600'
           }`}
-          title="Pre-uploaded Reports"
+          title="Lab Worklist"
         >
           <AlertCircle size={24} />
         </button>
@@ -398,7 +398,7 @@ function App() {
         {/* Header */}
         <header className="bg-white border-b border-slate-200 px-8 py-4 print:hidden">
           <h1 className="text-2xl font-semibold text-slate-800">
-            {activeTab === 'settings' ? 'Settings' : activeTab === 'history' ? 'History' : activeTab === 'pending' ? 'Pre-uploaded Reports' : 'Report Generator'}
+            {activeTab === 'settings' ? 'Settings' : activeTab === 'history' ? 'History' : activeTab === 'pending' ? 'Lab Worklist' : 'Report Generator'}
           </h1>
         </header>
 
@@ -408,7 +408,7 @@ function App() {
         ) : activeTab === 'history' ? (
           <History onLoadReport={handleLoadFromHistory} />
         ) : activeTab === 'pending' ? (
-          <PreUploadedReports onLoadReport={handleLoadPendingReport} />
+          <LabWorklist onLoadReport={handleLoadPendingReport} />
         ) : (
           <main className="flex-1 overflow-auto p-8">
           {/* State A: Upload */}
@@ -425,26 +425,38 @@ function App() {
                     : 'border-slate-300 bg-white hover:border-blue-400'
                 }`}
               >
-                <Upload className="mx-auto h-16 w-16 text-slate-400 mb-6" />
-                <h2 className="text-2xl font-semibold text-slate-800 mb-2">
-                  {isLoading ? 'Processing PDF...' : uploadedFilePath ? 'PDF Uploaded Successfully!' : 'Upload Laboratory Report'}
-                </h2>
-                <p className="text-slate-500 mb-6">
-                  {uploadedFilePath 
-                    ? `File: ${uploadedFilePath.split('\\').pop()}`
-                    : 'Drag and drop a PDF file here, or click to browse'
-                  }
-                </p>
-                
-                <div className="flex gap-4 justify-center">
-                  {!uploadedFilePath ? (
-                    <>
+                {isLoading ? (
+                  <>
+                    <div className="mx-auto h-16 w-16 text-blue-600 mb-6 animate-spin">
+                      <svg className="w-full h-full" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    </div>
+                    <h2 className="text-2xl font-semibold text-slate-800 mb-2">
+                      Processing PDF...
+                    </h2>
+                    <p className="text-slate-500 mb-6">
+                      Extracting medical data with AI, please wait...
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="mx-auto h-16 w-16 text-slate-400 mb-6" />
+                    <h2 className="text-2xl font-semibold text-slate-800 mb-2">
+                      Upload Laboratory Report
+                    </h2>
+                    <p className="text-slate-500 mb-6">
+                      Drag and drop a PDF file here, or click to browse
+                    </p>
+                    
+                    <div className="flex gap-4 justify-center">
                       <button
                         onClick={handleFileSelect}
                         disabled={isLoading}
                         className="px-8 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:bg-slate-400 transition-colors"
                       >
-                        {isLoading ? 'Loading...' : 'Browse Files'}
+                        Browse Files
                       </button>
                       <button
                         onClick={handleLoadSampleData}
@@ -452,29 +464,9 @@ function App() {
                       >
                         Load Sample Data
                       </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={handleLoadResult}
-                        disabled={isLoading}
-                        className="px-8 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <FileText size={20} />
-                        {isLoading ? 'Processing...' : 'Load Result'}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setUploadedFilePath(null)
-                          setPdfData(null)
-                        }}
-                        className="px-8 py-3 bg-white text-slate-600 font-medium rounded-lg border-2 border-slate-300 hover:bg-slate-50 transition-colors"
-                      >
-                        Upload Different File
-                      </button>
-                    </>
-                  )}
-                </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}

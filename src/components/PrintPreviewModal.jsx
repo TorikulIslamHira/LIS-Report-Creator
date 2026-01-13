@@ -8,7 +8,8 @@ export default function PrintPreviewModal({ isOpen, onClose, reportData, printRe
     hospitalName: 'Medical Laboratory',
     hospitalAddress: '',
     labPhone: '',
-    labEmail: ''
+    labEmail: '',
+    doctorSignaturePath: ''
   })
 
   useEffect(() => {
@@ -23,7 +24,8 @@ export default function PrintPreviewModal({ isOpen, onClose, reportData, printRe
           hospitalName: settings.hospitalName || 'Medical Laboratory',
           hospitalAddress: settings.hospitalAddress || '',
           labPhone: settings.labPhone || '',
-          labEmail: settings.labEmail || ''
+          labEmail: settings.labEmail || '',
+          doctorSignaturePath: settings.doctorSignaturePath || ''
         })
       }
     } catch (error) {
@@ -189,13 +191,33 @@ export default function PrintPreviewModal({ isOpen, onClose, reportData, printRe
             </table>
 
             {/* Footer */}
-            <div className="mt-8 pt-4 border-t border-slate-300 text-xs text-slate-500">
-              <p className="mb-1">
-                <strong>Disclaimer:</strong> This report is for medical purposes only.
-              </p>
-              <p>
-                Results should be interpreted by a qualified healthcare professional.
-              </p>
+            <div className="mt-8 pt-4 border-t border-slate-300">
+              {/* Signature Section */}
+              {hospitalSettings.doctorSignaturePath && (
+                <div className="flex justify-end mb-4">
+                  <div className="text-center">
+                    <img 
+                      src={`file://${hospitalSettings.doctorSignaturePath}`}
+                      alt="Doctor's Signature"
+                      className="max-h-16 max-w-48 object-contain mb-1"
+                      onError={(e) => { e.target.style.display = 'none' }}
+                    />
+                    <div className="border-t border-slate-400 pt-1">
+                      <p className="text-xs font-semibold text-slate-700">{doctorName || 'Authorized Signatory'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Disclaimer */}
+              <div className="text-xs text-slate-500">
+                <p className="mb-1">
+                  <strong>Disclaimer:</strong> This report is for medical purposes only.
+                </p>
+                <p>
+                  Results should be interpreted by a qualified healthcare professional.
+                </p>
+              </div>
             </div>
           </div>
         </div>
