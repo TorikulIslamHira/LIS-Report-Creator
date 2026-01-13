@@ -24,6 +24,10 @@ try {
       console.log('[Preload] getSetting called with:', key)
       return ipcRenderer.invoke('get-setting', key)
     },
+    selectWatchFolder: () => {
+      console.log('[Preload] selectWatchFolder called')
+      return ipcRenderer.invoke('select-watch-folder')
+    },
     // Doctor management
     addDoctor: (doctor) => ipcRenderer.invoke('add-doctor', doctor),
     getDoctors: () => ipcRenderer.invoke('get-doctors'),

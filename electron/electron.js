@@ -135,6 +135,40 @@ ipcMain.handle('get-setting', async (event, key) => {
   return store.get(key)
 })
 
+// IPC Handler for selecting watch folder from Pre-uploaded Reports page
+ipcMain.handle('select-watch-folder', async () => {
+  console.log('[Watch Folder] Opening folder selection dialog')
+  
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: 'Select Watch Folder for PDF Reports'
+  })
+  
+  if (result.canceled) {
+    console.log('[Watch Folder] Selection canceled')
+    return { canceled: true }
+  }
+  
+  const selectedPath = result.filePaths[0]
+  console.log('[Watch Folder] New path selected:', selectedPath)
+  
+  // Save to store
+  store.set('watchFolderPath', selectedPath)
+  
+  // Restart watcher
+  console.log('[Watch Folder] Restarting watcher')
+  startFolderWatcher()
+  
+  // Scan for existing PDFs
+  console.log('[Watch Folder] Scanning for existing PDFs')
+  await scanFolderForPDFs(selectedPath)
+  
+  return { 
+    canceled: false, 
+    filePath: selectedPath 
+  }
+})
+
 // IPC Handlers for doctors management
 ipcMain.handle('add-doctor', async (event, doctor) => {
   const doctors = store.get('doctors', [])
@@ -296,6 +330,30 @@ async function processWatchedPDF(filePath) {
     
   } catch (error) {
     console.error('[Watch Folder] Error processing PDF:', error)
+  }
+}
+
+// Scan folder for existing PDFs when folder is first selected
+async function scanFolderForPDFs(folderPath) {
+  try {
+    console.log('[Watch Folder] Scanning folder:', folderPath)
+    
+    if (!fs.existsSync(folderPath)) {
+      console.warn('[Watch Folder] Folder does not exist')
+      return
+    }
+    
+    const files = fs.readdirSync(folderPath)
+    const pdfFiles = files.filter(file => file.toLowerCase().endsWith('.pdf'))
+    
+    console.log('[Watch Folder] Found', pdfFiles.length, 'PDF files')
+    
+    for (const pdfFile of pdfFiles) {
+      const filePath = path.join(folderPath, pdfFile)
+      await processWatchedPDF(filePath)
+    }
+  } catch (error) {
+    console.error('[Watch Folder] Error scanning folder:', error)
   }
 }
 

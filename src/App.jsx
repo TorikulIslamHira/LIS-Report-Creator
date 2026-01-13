@@ -17,7 +17,7 @@ function App() {
   const [ageDays, setAgeDays] = useState('')
   const [selectedDoctorId, setSelectedDoctorId] = useState('')
   const [selectedTesterId, setSelectedTesterId] = useState('')
-  const [reportDate, setReportDate] = useState(new Date().toLocaleDateString())
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0])
   const [deliveryDate, setDeliveryDate] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -319,7 +319,7 @@ function App() {
     setAgeDays(report.ageDays || '')
     setSelectedDoctorId('')
     setSelectedTesterId('')
-    setReportDate(new Date().toLocaleDateString())
+    setReportDate(new Date().toISOString().split('T')[0])
     setDeliveryDate('')
     setTests(report.tests || [])
     setUhid(report.uhid || '')
@@ -338,7 +338,7 @@ function App() {
     setAgeDays('')
     setSelectedDoctorId('')
     setSelectedTesterId('')
-    setReportDate(new Date().toLocaleDateString())
+    setReportDate(new Date().toISOString().split('T')[0])
     setDeliveryDate('')
     setUploadedFilePath(null)
     setPdfData(null)
@@ -511,7 +511,11 @@ function App() {
                       <input
                         type="text"
                         value={petName}
-                        onChange={(e) => setPetName(e.target.value)}
+                        onChange={(e) => {
+                          console.log('Pet Name changed:', e.target.value)
+                          setPetName(e.target.value)
+                        }}
+                        placeholder="Enter pet name"
                         className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                     </div>
@@ -522,7 +526,11 @@ function App() {
                       <input
                         type="text"
                         value={petOwnerName}
-                        onChange={(e) => setPetOwnerName(e.target.value)}
+                        onChange={(e) => {
+                          console.log('Pet Owner changed:', e.target.value)
+                          setPetOwnerName(e.target.value)
+                        }}
+                        placeholder="Enter owner name"
                         className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
                       />
                     </div>
@@ -538,7 +546,10 @@ function App() {
                             type="text"
                             placeholder="Years"
                             value={ageYears}
-                            onChange={(e) => setAgeYears(e.target.value)}
+                            onChange={(e) => {
+                              console.log('Age Years changed:', e.target.value)
+                              setAgeYears(e.target.value)
+                            }}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-center"
                           />
                           <p className="text-xs text-slate-500 text-center mt-1">Years</p>
@@ -548,7 +559,10 @@ function App() {
                             type="text"
                             placeholder="Months"
                             value={ageMonths}
-                            onChange={(e) => setAgeMonths(e.target.value)}
+                            onChange={(e) => {
+                              console.log('Age Months changed:', e.target.value)
+                              setAgeMonths(e.target.value)
+                            }}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-center"
                           />
                           <p className="text-xs text-slate-500 text-center mt-1">Months</p>
@@ -558,7 +572,10 @@ function App() {
                             type="text"
                             placeholder="Days"
                             value={ageDays}
-                            onChange={(e) => setAgeDays(e.target.value)}
+                            onChange={(e) => {
+                              console.log('Age Days changed:', e.target.value)
+                              setAgeDays(e.target.value)
+                            }}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-center"
                           />
                           <p className="text-xs text-slate-500 text-center mt-1">Days</p>
@@ -570,7 +587,7 @@ function App() {
                         Test Date
                       </label>
                       <input
-                        type="text"
+                        type="date"
                         value={reportDate}
                         onChange={(e) => setReportDate(e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
@@ -700,7 +717,7 @@ function App() {
                     {savedReportData && (
                       <button
                         onClick={() => {
-                          setDeliveryDate(new Date().toLocaleDateString())
+                          setDeliveryDate(new Date().toISOString().split('T')[0])
                           setShowPrintPreview(true)
                         }}
                         className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"

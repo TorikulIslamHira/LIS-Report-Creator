@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react'
-import { FileText, Eye, Trash2, Search, Clock, AlertCircle } from 'lucide-react'
+import { FileText, Eye, Trash2, Search, Clock, AlertCircle, FolderOpen } from 'lucide-react'
 
 export default function PreUploadedReports({ onLoadReport }) {
   const [pendingReports, setPendingReports] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [watchFolderPath, setWatchFolderPath] = useState('')
+  const [isSelectingFolder, setIsSelectingFolder] = useState(false)
 
   useEffect(() => {
+    loadWatchFolder()
     loadPendingReports()
   }, [])
 
@@ -19,6 +22,36 @@ export default function PreUploadedReports({ onLoadReport }) {
       console.error('Error loading pending reports:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadWatchFolder = async () => {
+    try {
+      const watchPath = await window.electronAPI.getSetting('watchFolderPath')
+      setWatchFolderPath(watchPath || '')
+    } catch (error) {
+      console.error('Error loading watch folder:', error)
+    }
+  }
+
+  const handleSelectWatchFolder = async () => {
+    setIsSelectingFolder(true)
+    try {
+      const result = await window.electronAPI.selectWatchFolder()
+      
+      if (result && !result.canceled && result.filePath) {
+        console.log('[PreUploadedReports] Folder selected:', result.filePath)
+        setWatchFolderPath(result.filePath)
+        
+        setTimeout(() => {
+          loadPendingReports()
+        }, 1000)
+      }
+    } catch (error) {
+      console.error('Error selecting watch folder:', error)
+      alert('Error: ' + error.message)
+    } finally {
+      setIsSelectingFolder(false)
     }
   }
 
@@ -63,6 +96,34 @@ export default function PreUploadedReports({ onLoadReport }) {
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-slate-800 mb-2">Pre-uploaded Reports</h1>
           <p className="text-slate-600">Auto-detected reports from watch folder awaiting review</p>
+        </div>
+
+        {/* Watch Folder Selection Card */}
+        <div className="bg-white rounded-lg shadow-md border border-slate-200 p-6 mb-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <FolderOpen className="text-blue-600" size={24} />
+                <div>
+                  <p className="text-sm font-medium text-slate-600">Watch Folder</p>
+                  <p className="text-lg font-semibold text-slate-800 truncate" title={watchFolderPath}>
+                    {watchFolderPath ? watchFolderPath.split('\\').pop() || watchFolderPath : 'No folder selected'}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 ml-9">
+                PDFs in this folder will be auto-detected and processed
+              </p>
+            </div>
+            <button
+              onClick={handleSelectWatchFolder}
+              disabled={isSelectingFolder}
+              className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 whitespace-nowrap disabled:bg-slate-400 disabled:cursor-not-allowed"
+            >
+              <FolderOpen size={18} />
+              {isSelectingFolder ? 'Selecting...' : 'Change Folder'}
+            </button>
+          </div>
         </div>
 
         {/* Stats Card */}
